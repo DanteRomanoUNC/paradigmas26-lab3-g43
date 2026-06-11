@@ -92,3 +92,60 @@ D. Restricciones de Spark
     Estado compartido: Las funciones en los Workers no pueden utilizar variables mutables tradicionales del Driver. Para solucionar esto en los Pasos 5 y 6, utilizamos explícitamente Accumulators.
 
     Efectos secundarios: Las funciones deben ser lo más "puras" posibles. Spark provee tolerancia a fallos recalculando particiones perdidas o reintentando tareas. Esto significa que la función de un Worker podría ejecutarse más de una vez para el mismo dato.
+```
+
+# Ejercicio 2 — Manejo de errores y métricas
+
+## Uso de Accumulators
+
+Se utilizaron acumuladores de Spark para registrar métricas globales durante la ejecución distribuida del programa:
+
+* `feedsExitoAcc`: cantidad de feeds descargados correctamente.
+* `feedsFalloAcc`: cantidad de feeds cuya descarga falló.
+* `postsDescargadosAcc`: cantidad total de posts obtenidos desde los feeds.
+* `postsFalloAcc`: cantidad de feeds cuyo parseo falló.
+* `postsFiltradosAcc`: cantidad de posts descartados por contener título o contenido vacío.
+* `totalCaracteresFiltradosAcc`: suma de caracteres de todos los posts válidos, utilizada para calcular el largo promedio.
+
+Los acumuladores permiten que los Workers reporten información al Driver sin compartir estado mutable, respetando las restricciones del modelo de ejecución de Spark.
+
+## Manejo de errores
+
+Se implementó manejo de excepciones en las operaciones de entrada/salida para evitar que errores externos provoquen la finalización inesperada del programa.
+
+### Lectura de suscripciones
+
+La función `readSubscriptions` captura excepciones asociadas a:
+
+* Archivos inexistentes.
+* Archivos JSON con formato inválido.
+* Suscripciones mal formadas (sin los campos obligatorios `name` o `url`).
+
+Las suscripciones inválidas son descartadas y se informa la situación mediante mensajes descriptivos.
+
+### Descarga de feeds
+
+La función `downloadFeed` captura errores de red, URLs inválidas y fallas durante la descarga. Ante cualquier error retorna `None`, permitiendo que el procesamiento continúe con el resto de las suscripciones.
+
+### Lectura de diccionarios
+
+La función `readDictionaryFile` captura errores de acceso a archivos y retorna `None` cuando un diccionario no puede ser leído.
+
+La función `loadAll` verifica además la existencia del directorio de entidades y genera advertencias para cada archivo faltante, permitiendo utilizar los diccionarios que sí pudieron cargarse.
+
+### Validaciones adicionales
+
+Antes de continuar con el procesamiento se verifica que existan suscripciones válidas y posts válidos luego del filtrado. En caso contrario, el programa finaliza de manera controlada mostrando un mensaje de error apropiado.
+
+## Casos de prueba realizados
+
+Para validar el manejo de errores se realizaron las siguientes pruebas:
+
+1. Archivo de suscripciones inexistente.
+2. Archivo JSON con formato inválido.
+3. Suscripciones sin los campos obligatorios.
+4. URLs de feeds inválidas o inaccesibles.
+5. Directorio de entidades inexistente.
+6. Archivos de diccionario faltantes.
+
+En todos los casos el programa respondió correctamente, informando el error correspondiente y evitando excepciones no controladas.

@@ -28,19 +28,34 @@ object Dictionary {
    * @param entitiesDir path to directory containing entity files
    * @return combined list of all entities from all successfully loaded dictionaries
    */
-  def loadAll(entitiesDir: String): List[NamedEntity] = {
-    // Check if entities directory exists
-    val dataDir = new java.io.File(entitiesDir)
+def loadAll(entitiesDir: String): List[NamedEntity] = {
 
-    val peopleOpt = loadFromFile(s"$entitiesDir/people.txt", "Person")
+  val dataDir = new java.io.File(entitiesDir)
 
-    val universitiesOpt = loadFromFile(s"$entitiesDir/universities.txt", "University")
+  if (!dataDir.exists() || !dataDir.isDirectory) {
+    println(s"Error: entities directory '$entitiesDir' not found")
+    return List()
+  }
 
-    val languagesOpt = loadFromFile(s"$entitiesDir/languages.txt", "ProgrammingLanguage")
+  val peopleOpt = loadFromFile(s"$entitiesDir/people.txt", "Person")
+  if (peopleOpt.isEmpty)
+    println(s"Warning: Could not load $entitiesDir/people.txt")
 
-    val organizationsOpt = loadFromFile(s"$entitiesDir/organizations.txt", "Organization")
+  val universitiesOpt = loadFromFile(s"$entitiesDir/universities.txt", "University")
+  if (universitiesOpt.isEmpty)
+    println(s"Warning: Could not load $entitiesDir/universities.txt")
 
-    val placesOpt = loadFromFile(s"$entitiesDir/places.txt", "Place")
+  val languagesOpt = loadFromFile(s"$entitiesDir/languages.txt", "ProgrammingLanguage")
+  if (languagesOpt.isEmpty)
+    println(s"Warning: Could not load $entitiesDir/languages.txt")
+    
+  val organizationsOpt = loadFromFile(s"$entitiesDir/organizations.txt", "Organization")
+  if (organizationsOpt.isEmpty)
+    println(s"Warning: Could not load $entitiesDir/organizations.txt")
+
+  val placesOpt = loadFromFile(s"$entitiesDir/places.txt", "Place")
+  if (placesOpt.isEmpty)
+    println(s"Warning: Could not load $entitiesDir/places.txt")
 
     peopleOpt.getOrElse(List()) :::
       universitiesOpt.getOrElse(List()) :::

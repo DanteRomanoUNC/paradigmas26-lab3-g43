@@ -12,15 +12,35 @@ object FileIO {
    */
   def readSubscriptions(filePath: String): List[Option[Subscription]] = {
     implicit val formats: Formats = DefaultFormats
-    val source = Source.fromFile(filePath)
-    val content = source.mkString
-    source.close()
 
-    val json = parse(content)
-    val subscriptions = json.extract[List[Map[String, String]]]
+    try {
+      val source = Source.fromFile(filePath)
+      val content = source.mkString
+      source.close()
 
-    subscriptions.map { sub =>
-      Some(Subscription(sub("name"), sub("url")))
+      val json = parse(content)
+      val subscriptions = json.extract[List[Map[String, String]]]
+
+      subscriptions.map { sub =>
+        if (sub.contains("name") && sub.contains("url"))
+          Some(Subscription(sub("name"), sub("url")))
+        else {
+          println(
+            "Warning: Skipping malformed subscription (missing 'name' or 'url' field)"
+          )
+          None
+        }
+      }
+
+    } catch {
+
+      case _: java.io.FileNotFoundException =>
+        println(s"Error: Could not load $filePath - file not found")
+        List()
+
+      case _: Exception =>
+        println(s"Error: Could not load $filePath - invalid JSON format")
+        List()
     }
   }
 
@@ -30,10 +50,14 @@ object FileIO {
    * @return Option containing JSON as String, None on network error or timeout
    */
   def downloadFeed(url: String): Option[String] = {
-    val source = Source.fromURL(url)
-    val content = source.mkString
-    source.close()
-    Some(content)
+    try {
+      val source = Source.fromURL(url)
+      val content = source.mkString
+      source.close()
+      Some(content)
+    } catch {
+      case _: Exception => None
+    }
   }
 
   /**
@@ -42,13 +66,21 @@ object FileIO {
    * @return Option containing list of entities, None if file missing
    */
   def readDictionaryFile(filePath: String): Option[List[String]] = {
-    val source = Source.fromFile(filePath)
-    val lines = source.getLines()
-      .map(_.trim)
-      .filter(_.nonEmpty)
-      .filterNot(_.startsWith("#"))
-      .toList
-    source.close()
-    Some(lines)
+    try {
+      val source = Source.fromFile(filePath)
+
+      val lines = source.getLines()
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .filterNot(_.startsWith("#"))
+        .toList
+
+      source.close()
+
+      Some(lines)
+
+    } catch {
+      case _: Exception => None
+    }
   }
 }
