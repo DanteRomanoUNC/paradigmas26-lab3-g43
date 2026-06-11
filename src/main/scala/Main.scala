@@ -139,6 +139,8 @@ object Main {
     println(Formatters.formatTypeStats(typeCountsMap))
     println()
     println(Formatters.formatEntityStats(entityCountsMap, cmdArgs.topK))
+    
+    Thread.sleep(60000)
 
     filteredPostsRDD.unpersist()
     spark.stop()
