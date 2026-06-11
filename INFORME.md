@@ -149,3 +149,46 @@ Para validar el manejo de errores se realizaron las siguientes pruebas:
 6. Archivos de diccionario faltantes.
 
 En todos los casos el programa respondió correctamente, informando el error correspondiente y evitando excepciones no controladas.
+
+# Ejercicio 3 — Paralelizar el cómputo de entidades nombradas
+
+## reduceByKey como barrera de sincronización
+
+Cuando Spark ejecuta el `reduceByKey`, ocurre un proceso de shuffle: todas las
+tuplas `((tipo, nombre), 1)` generadas por los Workers son redistribuidas a través
+de la red para que cada clave quede concentrada en un único nodo. Recién entonces
+cada Worker puede sumar los valores de su subconjunto de claves y producir el
+conteo final.
+
+Esta barrera es inevitable para este problema porque el conteo de una entidad
+depende de todos los posts procesados por todos los Workers. No existe forma
+de saber cuántas veces aparece "Python" sin haber visto la contribución de cada
+partición — es una dependencia global que ninguna transformación independiente
+puede resolver.
+
+## Restricciones de la función pasada a reduceByKey
+
+La función debe ser **conmutativa** (`f(a, b) == f(b, a)`) y **asociativa**
+(`f(f(a, b), c) == f(a, f(b, c))`).
+
+Estas restricciones existen porque Spark puede aplicar la función en cualquier
+orden y combinar resultados parciales antes del shuffle final (optimización llamada
+combiner). Si la función no fuera asociativa o conmutativa, el resultado
+dependería del orden de ejecución y variaría entre corridas.
+
+La suma `_ + _` cumple ambas propiedades, por lo que es la elección correcta para
+contar ocurrencias.
+
+## Dónde se carga el diccionario de entidades
+
+El diccionario se carga en el **Driver**, mediante `Dictionary.loadAll(...)`, antes
+de que comience el `flatMap`. Cuando Spark serializa la función del `flatMap` para
+enviarla a los Workers, incluye el valor de `dictionary` como parte del closure.
+Cada Worker recibe su propia copia serializada del diccionario y la utiliza
+localmente para detectar entidades, sin necesidad de acceder al sistema de archivos
+ni comunicarse con el Driver durante la ejecución.
+
+Esto implica que el diccionario debe ser serializable y de tamaño razonable para
+ser enviado por red. Para diccionarios muy grandes, la alternativa sería usar una
+*broadcast variable*, que Spark distribuye de forma más eficiente evitando enviar
+una copia por cada tarea.
