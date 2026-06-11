@@ -68,7 +68,11 @@ object Main {
       valid
     }.cache() // cache: este RDD se usa en el conteo Y en el pipeline de entidades
 
+    // Ejercicio 4: parte c (Primera accion terminal)
+    val t0 = System.currentTimeMillis()
     val totalValidPosts = filteredPostsRDD.count() // acción terminal → activa los accumulators
+    val t1 = System.currentTimeMillis()
+    println(s"[Tiempo] Etapa 1 (descarga, parseo y filtrado de posts): ${(t1 - t0) / 1000.0} s")
 
     val avgChars =
       if (totalValidPosts > 0) totalCaracteresFiltradosAcc.value / totalValidPosts
@@ -110,8 +114,7 @@ object Main {
     }
 
     // c) reduceByKey: barrera de sincronización — suma conteos por clave
-    //    La función debe ser conmutativa y asociativa para que Spark
-    //    pueda combinar resultados parciales en cualquier orden.
+    //    La función debe ser conmutativa y asociativa para que Spark pueda combinar resultados parciales en cualquier orden.
     val entityCountsRDD = entityPairsRDD.reduceByKey(_ + _)
 
     // Conteo por tipo (pipeline paralelo sobre el mismo entitiesRDD)
@@ -119,9 +122,17 @@ object Main {
       .map(entity => (entity.entityType, 1))
       .reduceByKey(_ + _)
 
+    // Ejercicio 4: parte c (Segunda accion terminal)
+    val t2 = System.currentTimeMillis()
+
     // d) Traer resultados al Driver para formatear e imprimir
     val entityCountsMap: Map[(String, String), Int] = entityCountsRDD.collect().toMap
     val typeCountsArray = typeCountsRDD.collect()
+
+    // Ejercicio 4: parte c
+    val t3 = System.currentTimeMillis()
+    println(s"[Tiempo] Etapa 2 (detección de entidades, reducción y recolección): ${(t3 - t2) / 1000.0} s")
+
     val typeCountsMap: Map[String, Int] =
       typeCountsArray.toMap + ("total" -> entityCountsMap.values.sum)
 
