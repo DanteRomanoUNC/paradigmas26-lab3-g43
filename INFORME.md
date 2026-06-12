@@ -206,11 +206,13 @@ En nuestro pipeline, esto significa que los valores de feedsExitoAcc, feedsFallo
 
 ## Comparación de tiempos: versión secuencial vs. versión con Spark
 
-### Version secuencial:
-* Resultados: 
+* Conclusión sobre la Etapa 1 (Efecto de la Paralelización): Para la descarga de datos, la diferencia a favor de Spark es masiva (5.3s frente a 20.1s). Esto se debe a que la versión secuencial descarga los feeds uno por uno secuencialmente, acumulando el retardo de red de cada servidor (4 x 5s). Spark, al paralelizar la colección en un RDD, realiza las peticiones HTTP de forma simultánea, pagando el costo de la latencia de red una sola vez.
 
-### Version con Spark:
-* Resultados: Etapa 1 (descarga, parseo y filtrado de posts): 5.313 s. Etapa 2 (detección de entidades, reducción y recolección): 0.335 s
+* Conclusión sobre la Etapa 2 (El volumen de datos y el Overhead): En el análisis de texto y conteo de entidades, la versión secuencial es ligeramente superior (0.03s vs 0.48s). Al trabajar con un volumen de datos tan reducido (100 posts), el costo de coordinación de Spark supera el beneficio del procesamiento distribuido. Spark requiere de volúmenes de escala Big Data para amortizar este overhead.
+
+* Vedicto Final: Para la escala de datos actual, la diferencia técnica se aprecia principalmente en la concurrencia de la red (Etapa 1), pero no en el procesamiento de cómputo puro (Etapa 2), donde la solución secuencial es sumamente eficiente y libre de la sobrecarga arquitectónica que introduce un framework como Spark.
+
+![Captura Spark UI](img/image.png)
 
 # Ejercicio 5 — Acceso a datos y estadísticas del resultado
 

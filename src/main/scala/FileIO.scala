@@ -61,8 +61,8 @@ object FileIO {
       Some(content)
     } catch {
       case _: Exception => None
+    }
   }
-
   /**
    * Read dictionary file line by line.
    * @param filePath path to dictionary file
