@@ -66,11 +66,11 @@ object Main {
       else
         totalCaracteresFiltradosAcc.add(post.title.length + post.selftext.length)
       valid
-    }.cache() // cache: este RDD se usa en el conteo Y en el pipeline de entidades
+    }.cache() // Ejercicio 5, cache: este RDD se usa en el conteo y en el pipeline de entidades
 
     // Ejercicio 4: parte c (Primera accion terminal)
     val t0 = System.currentTimeMillis()
-    val totalValidPosts = filteredPostsRDD.count() // acción terminal → activa los accumulators
+    val totalValidPosts = filteredPostsRDD.count() // acción terminal → activa los accumulators y materializa el cahce
     val t1 = System.currentTimeMillis()
     println(s"[Tiempo] Etapa 1 (descarga, parseo y filtrado de posts): ${(t1 - t0) / 1000.0} s")
 
@@ -92,7 +92,7 @@ object Main {
 
     if (totalValidPosts == 0) {
       println("Error: No valid posts downloaded after filtering")
-      filteredPostsRDD.unpersist()
+      filteredPostsRDD.unpersist()      // Ejercicio 5: liberar memoria antes de salir, incluso en rutas de error
       spark.stop()
       return
     }
@@ -106,7 +106,7 @@ object Main {
     val entitiesRDD = filteredPostsRDD.flatMap { post =>
       val combinedText = post.title + " " + post.selftext
       Analyzer.detectEntities(combinedText, dictionary)
-    }
+    }.cache() // Ejercicio 5, cache: evita re-detectar entidades 2 veces (conteo por: entidad especifica / tipo)
 
     // b) map: cada entidad → ((tipo, nombre), 1)
     val entityPairsRDD = entitiesRDD.map { entity =>
@@ -114,10 +114,11 @@ object Main {
     }
 
     // c) reduceByKey: barrera de sincronización — suma conteos por clave
-    //    La función debe ser conmutativa y asociativa para que Spark pueda combinar resultados parciales en cualquier orden.
+    //    La función debe ser conmutativa y asociativa para que Spark
+    //    pueda combinar resultados parciales en cualquier orden.
     val entityCountsRDD = entityPairsRDD.reduceByKey(_ + _)
 
-    // Conteo por tipo (pipeline paralelo sobre el mismo entitiesRDD)
+    // Conteo por tipo (pipeline paralelo sobre el mismo entitiesRDD, leido del cache)
     val typeCountsRDD = entitiesRDD
       .map(entity => (entity.entityType, 1))
       .reduceByKey(_ + _)
@@ -139,9 +140,11 @@ object Main {
     println(Formatters.formatTypeStats(typeCountsMap))
     println()
     println(Formatters.formatEntityStats(entityCountsMap, cmdArgs.topK))
-    
+
     Thread.sleep(60000)
 
+    // Ejercicio 5c: liberar memoria una vez que ya no necesitamos los RDDs cacheados
+    entitiesRDD.unpersist()
     filteredPostsRDD.unpersist()
     spark.stop()
   }
