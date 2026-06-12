@@ -51,13 +51,16 @@ object FileIO {
    */
   def downloadFeed(url: String): Option[String] = {
     try {
-      val source = Source.fromURL(url)
+      val connection = new java.net.URL(url).openConnection()
+      .asInstanceOf[java.net.HttpURLConnection]
+      connection.setConnectTimeout(5000)
+      connection.setReadTimeout(15000) // debe superar el sleep(5000) del mock
+      val source = Source.fromInputStream(connection.getInputStream)
       val content = source.mkString
       source.close()
       Some(content)
     } catch {
       case _: Exception => None
-    }
   }
 
   /**
