@@ -188,6 +188,69 @@ Cada Worker recibe su propia copia serializada del diccionario y la utiliza
 localmente para detectar entidades, sin necesidad de acceder al sistema de archivos
 ni comunicarse con el Driver durante la ejecución.
 
+# Ejercicio 4 — Monitoreo del éxito de las tareas
+
+## ¿Por qué los Accumulators solo deben usarse para métricas?
+
+* 1. Los Accumulators no deben usarse para tomar decisiones lógicas porque su valor no es visible para los Workers: cuando un Worker incrementa un acumulador, ese cambio no se propaga de vuelta a los demás Workers ni al Driver hasta que la acción terminal completa. Si una función dentro de un flatMap o filter intentara leer el valor del acumulador para decidir cómo procesar el siguiente elemento, leería siempre el valor inicial (cero), no el acumulado hasta ese momento.
+
+* 2. Tolerancia a fallos de Spark: si una tarea falla y Spark la reintenta, los incrementos de esa tarea fallida pueden contabilizarse más de una vez. Spark solo garantiza que cada tarea se ejecute al menos una vez, por lo que un acumulador puede quedar sobrecontado si hay reintentos. Para métricas de observabilidad esto es aceptable (el error es pequeño y eventual), pero para lógica de negocio sería un error silencioso.
+
+* Ej. Un Accumulator da un valor incorrecto: si una partición falla a mitad del procesamiento y Spark reintenta toda la tarea. Los incrementos de la ejecución fallida se acumulan junto con los de la ejecución exitosa, produciendo un conteo mayor al real. Entonces, si un flatMap procesa 10 posts y falla en el octavo, Spark reintenta la partición completa: los 7 incrementos ya realizados se suman a los 10 de la segunda ejecución, dando 17 en lugar de 10.
+
+## ¿En qué momento está disponible el valor de un Accumulator?
+
+El valor de un Accumulator solo está disponible para ser leído por el Driver después de que una acción terminal (count, collect, reduce, etc.) sobre el RDD que lo modifica haya completado. Las transformaciones de Spark son lazy (dentro de un flatMap o filter). En ese momento Spark materializa el grafo de ejecución, los Workers procesan sus particiones e incrementan sus copias locales del acumulador, y al finalizar la acción el Driver suma todos los valores parciales recibidos de cada Worker. Intentar leer el acumulador antes de la acción terminal devuelve el valor inicial o un valor parcial e indeterminado.
+
+En nuestro pipeline, esto significa que los valores de feedsExitoAcc, feedsFalloAcc, postsDescargadosAcc y postsFiltradosAcc recién están completos y correctos después del filteredPostsRDD.count(), que es la primera acción terminal.
+
+## Comparación de tiempos: versión secuencial vs. versión con Spark
+
+### Version secuencial:
+* Resultados: 
+
+### Version con Spark:
+* Resultados: Etapa 1 (descarga, parseo y filtrado de posts): 5.313 s. Etapa 2 (detección de entidades, reducción y recolección): 0.335 s
+
+# Ejercicio 5 — Acceso a datos y estadísticas del resultado
+
+## ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
+
+Sin .cache() en filteredPostsRDD, Spark recomputaría el resultado completo desde subscriptionsRDD cada vez que una acción necesite datos de ese RDD.
+En nuestro pipeline hay dos puntos que lo usan: el count() y el flatMap que produce entitiesRDD. Por lo tanto, la descarga de feeds se
+ejecutaría dos veces (una por cada acción terminal que cierra esa rama).
+
+Con N suscripciones, serian 2*N requests HTTP, con sus correspondientes latencias de red, parseos JSON y filtrados de posts.
+
+Si tampoco hubiera .cache() en entitiesRDD, las dos ramas de conteo (entityCountsRDD y typeCountsRDD) desencadenarían cada una su propio
+collect() como acción, lo que provocaría dos flatMaps de detección de entidades completos (sin contar el cache de filteredPostsRDD, 
+que también produce dos descargas más). En total: cuatro descargas sin ningún cache.
+
+## ¿Por qué es incorrecto llamar a collect() entre los pasos a) y b) del ejercicio 3 y luego continuar el pipeline?
+
+Llamar a collect() sobre entitiesRDD entre el flatMap (paso a) y los map/reduceByKey (paso b) traería todos los objetos NamedEntity al Driver. 
+El pipeline posterior tendría entonces que operar sobre una colección local (Array[NamedEntity]) en lugar de sobre un RDD distribuido.
+
+### Consecuencias:
+
+* Pérdida de paralelismo: el map y el reduceByKey no se ejecutarian en los Workers, sino en el Driver de forma secuencial.
+* Presión de memoria en el Driver: el Driver debe alojar todos los objetos en su heap JVM. Para volúmenes grandes, esto puede provocar que se quede sin memoria.
+* Ruptura del linaje: al materializar el RDD en el Driver, Spark pierde la capacidad de re-ejecutar automáticamente particiones fallidas a partir del linaje original.
+
+La consecuencia directa sobre la distribución del trabajo es que Spark deja de ser útil: todo el cómputo restante 
+recae en un solo nodo (el Driver) y el cluster de Workers queda ocioso.
+
+## cache() es también lazy. ¿En qué momento se almacena realmente el RDD en memoria?
+
+Dado que .cache() es una transformación, no una acción. Invocarla solo anota el RDD con el nivel de almacenamiento MEMORY_AND_DISK 
+(o MEMORY_ONLY según la configuración), pero no desencadena ningún cómputo.
+
+El RDD se materializa y almacena en memoria la primera vez que una acción provoca su evaluación. En nuestro pipeline:
+
+* filteredPostsRDD se almacena cuando se ejecuta filteredPostsRDD.count().
+* entitiesRDD se almacena cuando se ejecuta el primer collect() que cierra alguna de las dos ramas derivadas ( entityCountsRDD.collect() o typeCountsRDD.collect() ).
+
+A partir de ese momento, las siguientes acciones que necesiten ese RDD lo leen directamente desde la memoria del ejecutor, sin re-ejecutar el linaje.
 Esto implica que el diccionario debe ser serializable y de tamaño razonable para
 ser enviado por red. Para diccionarios muy grandes, la alternativa sería usar una
 *broadcast variable*, que Spark distribuye de forma más eficiente evitando enviar
